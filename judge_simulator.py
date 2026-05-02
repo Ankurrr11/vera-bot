@@ -31,7 +31,7 @@ from dotenv import load_dotenv
 import os
 load_dotenv()
 
-LLM_API_KEY = os.environ.get("LLM_API_KEY", "")  # <-- PUT YOUR API KEY HERE
+LLM_API_KEY = os.environ.get("LLM_API_KEY", os.environ.get("GROQ_API_KEY", ""))
 
 # Model to use (leave empty for default, or specify like "gpt-4o", "claude-3-5-sonnet-20241022", etc.)
 LLM_MODEL = "llama-3.3-70b-versatile"  # <-- Optional: specify model or leave empty for default
