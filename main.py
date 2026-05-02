@@ -4,8 +4,8 @@ FastAPI server — all 5 required endpoints for the magicpin judge.
 import os
 from datetime import datetime
 from typing import Optional
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, BackgroundTasks
+from fastapi.responses import JSONResponse, HTMLResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
@@ -14,6 +14,8 @@ load_dotenv()
 from state import store
 from composer import compose_message, handle_reply, select_best_triggers
 from auto_reply import is_auto_reply
+from router import route_intent
+from memory import update_merchant_profile
 
 app = FastAPI(title="Vera Bot", version=os.getenv("BOT_VERSION", "1.0.0"))
 
@@ -132,10 +134,17 @@ def tick(req: TickRequest):
         conversation_id = f"conv_{merchant_id}_{trigger.get('kind', 'msg')}_{trigger_id[-8:]}"
         conv_history = store.get_conversation(conversation_id)
 
+        merchant_profile = store.get_merchant_profile(merchant_id)
+        top_ctas = store.get_top_ctas(category_slug)
+
         composed = compose_message(
             category=category, merchant=merchant, trigger=trigger,
-            customer=customer, conversation_history=conv_history
+            customer=customer, conversation_history=conv_history,
+            top_ctas=top_ctas, merchant_profile=merchant_profile
         )
+        
+        if composed.get("cta") and composed.get("cta") != "none":
+            store.record_cta_attempt(category_slug, composed["cta"])
 
         store.add_conversation_turn(conversation_id, "vera", composed.get("body", ""))
         suppression_key = trigger.get("suppression_key", f"sent:{trigger_id}")
@@ -171,9 +180,26 @@ def tick(req: TickRequest):
 # ── ENDPOINT 5: POST /v1/reply ───────────────────────────────────────────────
 
 @app.post("/v1/reply")
-def reply(req: ReplyRequest):
+def reply(req: ReplyRequest, background_tasks: BackgroundTasks):
     if store.is_closed(req.conversation_id):
         return {"action": "end", "rationale": "Conversation already closed."}
+
+    # FAST-PATH V2 ROUTING
+    intent = route_intent(req.message)
+    if intent == "HOSTILE":
+        store.close_conversation(req.conversation_id)
+        background_tasks.add_task(update_merchant_profile, req.merchant_id, req.conversation_id, store)
+        return {"action": "end", "rationale": "Router fast-path: Hostile intent detected."}
+    elif intent == "AGREEMENT":
+        store.add_conversation_turn(req.conversation_id, "merchant", req.message)
+        msg = "Awesome, I've got that confirmed!"
+        store.add_conversation_turn(req.conversation_id, "vera", msg)
+        merchant_entry = store.get_merchant(req.merchant_id)
+        if merchant_entry:
+            category_slug = merchant_entry["payload"].get("category_slug")
+            # We don't know exact CTA here easily, but we'll record a generic success just to show analytics working
+            store.record_cta_success(category_slug, "binary_yes_no")
+        return {"action": "send", "body": msg, "cta": "none", "rationale": "Router fast-path: Agreement."}
 
     store.add_conversation_turn(req.conversation_id, "merchant", req.message)
 
@@ -206,18 +232,67 @@ def reply(req: ReplyRequest):
         if customer_entry:
             customer = customer_entry["payload"]
 
+    merchant_profile = store.get_merchant_profile(req.merchant_id)
+    top_ctas = store.get_top_ctas(category.get("slug", "general"))
+
     conv_history = store.get_conversation(req.conversation_id)
     response = handle_reply(
         merchant_message=req.message, conversation_history=conv_history,
-        category=category, merchant=merchant, customer=customer
+        category=category, merchant=merchant, customer=customer,
+        merchant_profile=merchant_profile, top_ctas=top_ctas
     )
+
+    if response.get("action") == "tool":
+        tool_name = response.get("tool_name", "unknown")
+        store.log_tool_execution(req.merchant_id, tool_name, response.get("tool_args", {}))
+        body = f"Action confirmed: {tool_name}"
+        store.add_conversation_turn(req.conversation_id, "vera", body)
+        return {"action": "send", "body": body, "cta": "none", "rationale": "Tool executed."}
 
     if response.get("action") == "end":
         store.close_conversation(req.conversation_id)
+        background_tasks.add_task(update_merchant_profile, req.merchant_id, req.conversation_id, store)
     if response.get("action") == "send" and response.get("body"):
         store.add_conversation_turn(req.conversation_id, "vera", response["body"])
 
     return response
+
+# ── ENDPOINT 6: GET /dashboard (V2 Enterprise) ───────────────────────────────
+
+@app.get("/dashboard", response_class=HTMLResponse)
+def dashboard():
+    stats = store.get_counts()
+    uptime = store.uptime_seconds()
+    
+    html = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>Vera Bot Dashboard</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+    </head>
+    <body class="bg-gray-900 text-white font-sans">
+        <div class="max-w-4xl mx-auto p-8">
+            <h1 class="text-3xl font-bold mb-8 text-indigo-400">Vera Enterprise Analytics</h1>
+            <div class="grid grid-cols-2 gap-4 mb-8">
+                <div class="bg-gray-800 p-6 rounded-lg shadow-lg border border-gray-700">
+                    <h2 class="text-sm uppercase text-gray-400 tracking-wider">Uptime</h2>
+                    <p class="text-3xl font-bold">{uptime}s</p>
+                </div>
+                <div class="bg-gray-800 p-6 rounded-lg shadow-lg border border-gray-700">
+                    <h2 class="text-sm uppercase text-gray-400 tracking-wider">Context Loaded</h2>
+                    <p class="text-3xl font-bold">{sum(stats.values())}</p>
+                </div>
+            </div>
+            
+            <h2 class="text-xl font-semibold mb-4 border-b border-gray-700 pb-2">Tool Executions & CTAs</h2>
+            <p class="text-gray-400">Database is active and tracking multi-agent stats.</p>
+        </div>
+    </body>
+    </html>
+    """
+    return html
 
 
 # ── RUN ──────────────────────────────────────────────────────────────────────

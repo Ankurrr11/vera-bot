@@ -24,17 +24,21 @@ HARD RULES:
 
 OUTPUT FORMAT — JSON only, no markdown, no explanation outside JSON:
 {
-  "body": "the WhatsApp message text",
+  "action": "send" or "tool" or "end",
+  "body": "the WhatsApp message text (only if action is send)",
   "cta": "binary_yes_no" or "open_ended" or "none" or "binary_confirm_cancel" or "multi_choice_slot",
   "send_as": "vera" or "merchant_on_behalf",
   "rationale": "1-2 sentences: why this message, what compulsion lever used",
-  "attachment_url": "Optional. Add a mock magicpin image URL (e.g. https://magicpin.com/assets/chart_123.png) ONLY if a chart or image adds high compulsion."
+  "attachment_url": "Optional. Add a mock magicpin image URL (e.g. https://magicpin.com/assets/chart_123.png) ONLY if a chart or image adds high compulsion.",
+  "tool_name": "Optional. Only if action is 'tool'. E.g. 'pause_campaign'",
+  "tool_args": {} // Optional. Only if action is 'tool'. JSON object with arguments.
 }"""
 
 
 def build_compose_prompt(category: dict, merchant: dict, trigger: dict,
                           customer: dict = None, conversation_history: list = None,
-                          filtered_digest: list = None) -> str:
+                          filtered_digest: list = None, top_ctas: list = None,
+                          merchant_profile: str = None) -> str:
     parts = []
 
     digest_to_use = filtered_digest if filtered_digest is not None else category.get('digest', [])
@@ -46,7 +50,8 @@ Offer Catalog: {json.dumps(category.get('offer_catalog', []))}
 Peer Stats: {json.dumps(category.get('peer_stats', {}))}
 Digest Items (recent research/news/compliance): {json.dumps(digest_to_use)}
 Seasonal Beats: {json.dumps(category.get('seasonal_beats', []))}
-Trend Signals: {json.dumps(category.get('trend_signals', []))}""")
+Trend Signals: {json.dumps(category.get('trend_signals', []))}
+Historical Top CTAs for Category: {json.dumps(top_ctas or [])}""")
 
     identity = merchant.get('identity', {})
     perf = merchant.get('performance', {})
@@ -58,7 +63,8 @@ Owner First Name: {identity.get('owner_first_name', 'there')}
 City: {identity.get('city')} | Locality: {identity.get('locality')}
 Languages: {identity.get('languages', ['en'])}
 Subscription: {json.dumps(merchant.get('subscription', {}))}
-Performance (30d): views={perf.get('views')}, calls={perf.get('calls')}, directions={perf.get('directions')}, CTR={perf.get('ctr')} vs peer avg CTR={category.get('peer_stats', {}).get('avg_ctr', 'unknown')}
+Long-Term Merchant Profile (Memory): {merchant_profile or 'None'}
+Historical Performance: {json.dumps(perf)}
 7d deltas: {json.dumps(perf.get('delta_7d', {}))}
 Active Offers: {json.dumps([o for o in merchant.get('offers', []) if o.get('status') == 'active'])}
 Customer Aggregate: {json.dumps(merchant.get('customer_aggregate', {}))}
@@ -100,8 +106,9 @@ Use a specific verifiable fact. No generic offers. Output JSON only.""")
     return "\n".join(parts)
 
 
-def build_reply_prompt(merchant_message: str, conversation_history: list,
-                        category: dict, merchant: dict, customer: dict = None) -> str:
+def build_reply_prompt(merchant_message: str, category: dict, merchant: dict,
+                       conversation_history: list, customer: dict = None,
+                       merchant_profile: str = None, top_ctas: list = None) -> str:
     history_text = "\n".join([f"[{t['role'].upper()}]: {t['body']}" for t in conversation_history[-8:]])
     owner_name = merchant.get('identity', {}).get('owner_first_name', 'there')
 
@@ -125,8 +132,10 @@ Customer aggregate: {json.dumps(merchant.get('customer_aggregate', {}))}
 
 OUTPUT FORMAT (JSON only):
 {{
-  "action": "send",
-  "body": "reply message",
+  "action": "send" or "tool" or "end" or "wait",
+  "body": "reply message (if send)",
   "cta": "binary_yes_no" or "open_ended" or "none" or "binary_confirm_cancel",
-  "rationale": "why this response"
+  "rationale": "why this response",
+  "tool_name": "Optional. E.g. 'pause_campaign'",
+  "tool_args": {{}} // Optional JSON object
 }}"""

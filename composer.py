@@ -31,7 +31,8 @@ def call_groq(system: str, user: str) -> dict:
 
 
 def compose_message(category: dict, merchant: dict, trigger: dict,
-                     customer: dict = None, conversation_history: list = None) -> dict:
+                     customer: dict = None, conversation_history: list = None,
+                     top_ctas: list = None, merchant_profile: str = None) -> dict:
     """Main compose function."""
     from rag import retrieve_relevant_digest_items
     
@@ -46,7 +47,7 @@ def compose_message(category: dict, merchant: dict, trigger: dict,
     user_prompt = build_compose_prompt(
         category=category, merchant=merchant, trigger=trigger,
         customer=customer, conversation_history=conversation_history or [],
-        filtered_digest=filtered_digest
+        filtered_digest=filtered_digest, top_ctas=top_ctas, merchant_profile=merchant_profile
     )
     result = call_groq(SYSTEM_PROMPT, user_prompt)
 
@@ -67,7 +68,8 @@ def compose_message(category: dict, merchant: dict, trigger: dict,
 
 
 def handle_reply(merchant_message: str, conversation_history: list,
-                  category: dict, merchant: dict, customer: dict = None) -> dict:
+                 category: dict, merchant: dict, customer: dict = None,
+                 top_ctas: list = None, merchant_profile: str = None) -> dict:
     """Handle an incoming merchant reply."""
     if is_opt_out(merchant_message):
         return {"action": "end", "rationale": "Merchant explicitly opted out. Closing conversation."}
@@ -77,8 +79,9 @@ def handle_reply(merchant_message: str, conversation_history: list,
                 "rationale": "Detected auto-reply. Backing off 4 hours to wait for owner."}
 
     user_prompt = build_reply_prompt(
-        merchant_message=merchant_message, conversation_history=conversation_history,
-        category=category, merchant=merchant, customer=customer
+        merchant_message=merchant_message, category=category, merchant=merchant,
+        conversation_history=conversation_history, customer=customer,
+        merchant_profile=merchant_profile, top_ctas=top_ctas
     )
     result = call_groq(SYSTEM_PROMPT, user_prompt)
 

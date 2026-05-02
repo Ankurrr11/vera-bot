@@ -38,6 +38,16 @@ class StateStore:
             # Auto-reply counts
             c.execute('''CREATE TABLE IF NOT EXISTS auto_reply_counts
                          (merchant_id TEXT PRIMARY KEY, count INTEGER)''')
+            # V2 Enterprise: Merchant Profiles
+            c.execute('''CREATE TABLE IF NOT EXISTS merchant_profiles
+                         (merchant_id TEXT PRIMARY KEY, profile_summary TEXT)''')
+            # V2 Enterprise: CTA Analytics
+            c.execute('''CREATE TABLE IF NOT EXISTS cta_analytics
+                         (category_slug TEXT, cta_name TEXT, attempts INTEGER, successes INTEGER,
+                          PRIMARY KEY (category_slug, cta_name))''')
+            # V2 Enterprise: Tool Executions
+            c.execute('''CREATE TABLE IF NOT EXISTS tool_executions
+                         (id INTEGER PRIMARY KEY AUTOINCREMENT, merchant_id TEXT, tool_name TEXT, tool_args TEXT, ts TEXT)''')
             conn.commit()
 
     def store_context(self, scope: str, context_id: str, version: int, payload: dict, delivered_at: str) -> dict:
@@ -140,5 +150,44 @@ class StateStore:
     def uptime_seconds(self) -> int:
         return int((datetime.utcnow() - self.started_at).total_seconds())
 
+    # --- V2 Enterprise Methods ---
+    
+    def get_merchant_profile(self, merchant_id: str) -> str:
+        with self._get_conn() as conn:
+            c = conn.cursor()
+            c.execute("SELECT profile_summary FROM merchant_profiles WHERE merchant_id=?", (merchant_id,))
+            row = c.fetchone()
+            return row[0] if row else ""
+
+    def set_merchant_profile(self, merchant_id: str, profile_summary: str):
+        with self._get_conn() as conn:
+            c = conn.cursor()
+            c.execute("REPLACE INTO merchant_profiles (merchant_id, profile_summary) VALUES (?, ?)", (merchant_id, profile_summary))
+            conn.commit()
+
+    def record_cta_attempt(self, category_slug: str, cta_name: str):
+        with self._get_conn() as conn:
+            c = conn.cursor()
+            c.execute("INSERT INTO cta_analytics (category_slug, cta_name, attempts, successes) VALUES (?, ?, 1, 0) ON CONFLICT(category_slug, cta_name) DO UPDATE SET attempts=attempts+1", (category_slug, cta_name))
+            conn.commit()
+
+    def record_cta_success(self, category_slug: str, cta_name: str):
+        with self._get_conn() as conn:
+            c = conn.cursor()
+            c.execute("UPDATE cta_analytics SET successes=successes+1 WHERE category_slug=? AND cta_name=?", (category_slug, cta_name))
+            conn.commit()
+
+    def get_top_ctas(self, category_slug: str, limit: int = 3) -> list:
+        with self._get_conn() as conn:
+            c = conn.cursor()
+            c.execute("SELECT cta_name, attempts, successes FROM cta_analytics WHERE category_slug=? ORDER BY successes DESC, attempts DESC LIMIT ?", (category_slug, limit))
+            return [{"cta_name": r[0], "attempts": r[1], "successes": r[2]} for r in c.fetchall()]
+
+    def log_tool_execution(self, merchant_id: str, tool_name: str, tool_args: dict):
+        with self._get_conn() as conn:
+            c = conn.cursor()
+            ts = datetime.utcnow().isoformat() + "Z"
+            c.execute("INSERT INTO tool_executions (merchant_id, tool_name, tool_args, ts) VALUES (?, ?, ?, ?)", (merchant_id, tool_name, json.dumps(tool_args), ts))
+            conn.commit()
 
 store = StateStore()
