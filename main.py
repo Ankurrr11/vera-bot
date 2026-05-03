@@ -240,6 +240,7 @@ def reply(req: ReplyRequest, background_tasks: BackgroundTasks):
 
     # 5. LLM COMPOSER (Grounded response)
     merchant_entry = store.get_merchant(req.merchant_id)
+    print(f"[DEBUG] Merchant {req.merchant_id} found: {merchant_entry is not None}")
     if not merchant_entry:
         return {"action": "send", "body": "Thanks for your reply! How can I help?",
                 "cta": "open_ended", "rationale": "Merchant context not found."}

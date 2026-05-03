@@ -20,6 +20,7 @@ class StateStore:
 
     def _init_db(self):
         with self._get_conn() as conn:
+            conn.execute("PRAGMA journal_mode=WAL;")
             c = conn.cursor()
             # Context table (for categories, merchants, customers, triggers)
             c.execute('''CREATE TABLE IF NOT EXISTS context 
