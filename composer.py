@@ -109,7 +109,13 @@ def compose_message(category: dict, merchant: dict, trigger: dict,
         gold_example=gold_example
     )
     result = call_groq(SYSTEM_PROMPT, user_prompt)
-    
+    # Ensure benchmark line is present in the reply
+    if "Benchmark:" not in result.get("body", "") and category.get("peer_stats"):
+        avg_ctr = category["peer_stats"].get("avg_ctr")
+        if avg_ctr is not None:
+            benchmark_line = f"Benchmark: CTR {avg_ctr * 100:.1f}%"
+            result["body"] = f"{benchmark_line}\n{result.get('body','')}"
+
     # Force the visual attachment if we generated one
     if attachment_url and "attachment_url" not in result:
         result["attachment_url"] = attachment_url
