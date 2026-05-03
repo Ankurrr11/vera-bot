@@ -14,6 +14,7 @@ load_dotenv()
 from state import store
 from composer import compose_message, handle_reply, select_best_triggers
 from auto_reply import is_auto_reply
+from tools import execute_tool
 from router import route_intent
 from memory import update_merchant_profile
 
@@ -152,10 +153,13 @@ def tick(req: TickRequest):
         store.suppress(suppression_key)
 
         if composed.get("action") == "tool":
+            tool_name = composed.get("tool_name")
+            tool_args = composed.get("tool_args", {})
+            execute_tool(tool_name, merchant_id, tool_args)
             store.log_tool_execution(
                 merchant_id=merchant_id,
-                tool_name=composed.get("tool_name", "unknown"),
-                args=json.dumps(composed.get("tool_args", {}))
+                tool_name=tool_name or "unknown",
+                args=json.dumps(tool_args)
             )
 
         identity = merchant.get("identity", {})
@@ -279,7 +283,20 @@ def reply(req: ReplyRequest, background_tasks: BackgroundTasks):
     if response.get("action") == "end":
         store.close_conversation(req.conversation_id)
         background_tasks.add_task(update_merchant_profile, req.merchant_id, req.conversation_id, store)
+    
     if response.get("action") == "send" and response.get("body"):
+        store.add_conversation_turn(req.conversation_id, "vera", response["body"])
+
+    if response.get("action") == "tool":
+        tool_name = response.get("tool_name")
+        tool_args = response.get("tool_args", {})
+        execute_tool(tool_name, req.merchant_id, tool_args)
+        store.log_tool_execution(
+            merchant_id=req.merchant_id,
+            tool_name=tool_name or "unknown",
+            args=json.dumps(tool_args)
+        )
+        response["body"] = f"Done! I've executed {tool_name} for you."
         store.add_conversation_turn(req.conversation_id, "vera", response["body"])
 
     return response

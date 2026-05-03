@@ -10,6 +10,9 @@ from auto_reply import is_auto_reply, is_opt_out
 client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 MODEL = "llama-3.3-70b-versatile"
 
+from rag import retrieve_relevant_digest_items
+from gold_standards import get_gold_standard_examples
+
 
 def call_groq(system: str, user: str) -> dict:
     """Call Groq API and return parsed JSON response."""
@@ -77,18 +80,27 @@ def compose_message(category: dict, merchant: dict, trigger: dict,
         if change < -0.1:
             winning_facts.append(f"Your {metric} dropped by {abs(change):.0%} recently.")
             
-    # 3. Category CTA Optimization (A/B Test Logic)
-    # Filter the top_ctas to only the single best-performing one to 'nudge' the LLM
-    best_cta = "binary_yes_no"
-    if top_ctas:
-        # Sort by success rate if available (mocked here, but in real state it would be sorted)
-        best_cta = top_ctas[0]
+    # 4. Relationship Continuity (Follow-up Detector)
+    follow_up_hint = None
+    if conversation_history and len(conversation_history) > 0:
+        last_turn = conversation_history[-1]
+        if last_turn.get("role") == "vera":
+            last_body = last_turn.get("content", "").lower()
+            if "ctr" in last_body: follow_up_hint = "previous chat about CTR gaps"
+            elif "view" in last_body: follow_up_hint = "previous chat about view drops"
+            elif "recall" in last_body: follow_up_hint = "previous chat about patient recalls"
+            else: follow_up_hint = "our recent conversation"
+
+    # 5. Dynamic Few-Shot RAG (Gold Standard Injection)
+    gold_example = get_gold_standard_examples(category.get("slug", ""))
 
     user_prompt = build_compose_prompt(
         category=category, merchant=merchant, trigger=trigger,
         customer=customer, conversation_history=conversation_history or [],
         filtered_digest=filtered_digest, top_ctas=[best_cta], merchant_profile=merchant_profile,
-        winning_facts=winning_facts
+        winning_facts=winning_facts,
+        follow_up_hint=follow_up_hint,
+        gold_example=gold_example
     )
     result = call_groq(SYSTEM_PROMPT, user_prompt)
     

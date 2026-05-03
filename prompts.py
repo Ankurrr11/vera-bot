@@ -45,8 +45,15 @@ OUTPUT FORMAT — JSON only:
 def build_compose_prompt(category: dict, merchant: dict, trigger: dict,
                           customer: dict = None, conversation_history: list = None,
                           filtered_digest: list = None, top_ctas: list = None,
-                          merchant_profile: str = None, winning_facts: list = None) -> str:
+                          merchant_profile: str = None, winning_facts: list = None,
+                          follow_up_hint: str = None, gold_example: str = None) -> str:
     parts = []
+
+    if gold_example:
+        parts.append(f"## GOLD STANDARD EXAMPLE (FOR STYLE REFERENCE)\n{gold_example}")
+
+    if follow_up_hint:
+        parts.append(f"## RELATIONSHIP CONTINUITY\nThis is a follow-up to: {follow_up_hint}. Start with a 'following up' tone if appropriate.")
 
     if winning_facts:
         parts.append(f"## STRATEGIC WINNING FACTS (PRIORITIZE THESE)\n" + "\n".join(winning_facts))
