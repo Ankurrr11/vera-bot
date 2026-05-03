@@ -80,6 +80,11 @@ def compose_message(category: dict, merchant: dict, trigger: dict,
         if change < -0.1:
             winning_facts.append(f"Your {metric} dropped by {abs(change):.0%} recently.")
             
+    # 3. Category CTA Optimization (A/B Test Logic)
+    best_cta = "binary_yes_no"
+    if top_ctas:
+        best_cta = top_ctas[0]
+
     # 4. Relationship Continuity (Follow-up Detector)
     follow_up_hint = None
     if conversation_history and len(conversation_history) > 0:
