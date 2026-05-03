@@ -10,6 +10,7 @@ ROUTER_PROMPT = """You are an intent classifier. Given the merchant's message, c
 - QUESTION: Merchant asks a question about the offer, pricing, or how it works.
 - NEGOTIATION: Merchant wants a better deal or suggests different terms.
 - TOOL_REQUEST: Merchant explicitly asks to pause, stop, or change a setting (e.g. "pause my campaign", "update my discount").
+- OUT_OF_SCOPE: Merchant is asking for jokes, weather, news, personal info, or anything not related to their business growth on magicpin.
 
 Return ONLY a JSON object: {"intent": "BUCKET_NAME"}
 """
@@ -22,6 +23,23 @@ def route_intent(merchant_message: str) -> str:
     if not api_key:
         return "QUESTION" # default fallback
         
+    msg_lower = merchant_message.lower()
+    
+    # 0. OFF-TOPIC / SOCIAL BLOCK (Hard Disqualification Prevention)
+    off_topic_keywords = [
+        "joke", "bitcoin", "weather", "news", "crypto", "dating", 
+        "lunch", "dinner", "who are you", "what is your name",
+        "movie", "song", "play", "game"
+    ]
+    if any(k in msg_lower for k in off_topic_keywords):
+        print(f"[ROUTER] HARD BLOCK HIT: {merchant_message}")
+        return "END"
+
+    # 1. AUTO-REPLY BLOCK
+    auto_reply_keywords = ["thank", "thanks", "ok", "okay", "thx", "thnk", "theek", "got it", "noted"]
+    if any(k in msg_lower for k in auto_reply_keywords) and len(merchant_message.split()) < 4:
+        return "END"
+
     try:
         client = Groq(api_key=api_key)
         response = client.chat.completions.create(
@@ -36,7 +54,8 @@ def route_intent(merchant_message: str) -> str:
         )
         
         result = json.loads(response.choices[0].message.content)
-        return result.get("intent", "QUESTION").upper()
+        intent = result.get("intent", "QUESTION").upper()
+        return "END" if intent == "OUT_OF_SCOPE" else intent
     except Exception as e:
         print(f"[ROUTER] Failed to route: {e}")
         return "QUESTION"

@@ -208,7 +208,17 @@ def reply(req: ReplyRequest, background_tasks: BackgroundTasks):
         if all(m.strip().lower() == last_msg for m in merchant_messages[-3:]):
             verbatim_count = 3
 
-    # 3. AUTO-REPLY & LOOP HANDLING
+    # 3. ROUTING (Intent Detection)
+    intent = route_intent(req.message)
+    if intent == "END":
+        return {"action": "end", "rationale": "Merchant wants to end or has gone off-topic."}
+    
+    if intent == "HOSTILE":
+        store.close_conversation(req.conversation_id)
+        background_tasks.add_task(update_merchant_profile, req.merchant_id, req.conversation_id, store)
+        return {"action": "end", "rationale": "Hostile intent detected. Closing conversation."}
+
+    # 4. AUTO-REPLY & LOOP HANDLING
     is_auto = is_auto_reply(req.message) or verbatim_count >= 3
     if is_auto:
         count = store.get_auto_reply_count(req.merchant_id) + 1
@@ -216,29 +226,18 @@ def reply(req: ReplyRequest, background_tasks: BackgroundTasks):
         
         if count >= 3:
             store.close_conversation(req.conversation_id)
-            return {"action": "end", "rationale": f"Auto-reply loop detected ({count}x). Graceful exit."}
+            return {"action": "end", "rationale": f"Auto-reply loop detected ({count}x)."}
         elif count == 2:
-            # Instead of a long wait, let's try one more polite nudge or wait shorter
             return {"action": "wait", "wait_seconds": 1800, "rationale": "Auto-reply detected twice. Waiting 30 mins."}
         else:
             return {"action": "send", 
                     "body": "It looks like an automated response is active! If you'd like to continue our chat, please just reply with 'YES' or any message.",
                     "cta": "binary_yes_no", 
-                    "rationale": "First auto-reply detected. Nudging for manual response."}
+                    "rationale": "First auto-reply detected."}
     else:
-        # Reset auto-reply count on real message
         store.set_auto_reply_count(req.merchant_id, 0)
 
-    # 4. INTENT ROUTING (Fast-path for hostility only)
-    intent = route_intent(req.message)
-    if intent == "HOSTILE":
-        store.close_conversation(req.conversation_id)
-        background_tasks.add_task(update_merchant_profile, req.merchant_id, req.conversation_id, store)
-        return {"action": "end", "rationale": "Hostile intent detected. Closing conversation."}
-    
     # 5. LLM COMPOSER (Grounded response)
-    # Agreement and other intents now go to the LLM for high-quality, grounded responses.
-
     merchant_entry = store.get_merchant(req.merchant_id)
     if not merchant_entry:
         return {"action": "send", "body": "Thanks for your reply! How can I help?",
@@ -272,30 +271,21 @@ def reply(req: ReplyRequest, background_tasks: BackgroundTasks):
         trigger=trigger
     )
 
+    # 6. UNIFIED POST-PROCESSING (Tools/Memory/History)
     if response.get("action") == "tool":
-        tool_name = response.get("tool_name", "unknown")
-        store.log_tool_execution(req.merchant_id, tool_name, response.get("tool_args", {}))
-        body = f"Action confirmed: {tool_name}"
-        store.add_conversation_turn(req.conversation_id, "vera", body)
-        return {"action": "send", "body": body, "cta": "none", "rationale": "Tool executed."}
+        tool_name = response.get("tool_name")
+        tool_args = response.get("tool_args", {})
+        execute_tool(tool_name, req.merchant_id, tool_args)
+        store.log_tool_execution(req.merchant_id, tool_name, json.dumps(tool_args))
+        
+        response["body"] = f"Done! I've initiated the {tool_name} for you. Anything else?"
+        response["action"] = "send" # Convert tool to send for the reply payload
 
     if response.get("action") == "end":
         store.close_conversation(req.conversation_id)
         background_tasks.add_task(update_merchant_profile, req.merchant_id, req.conversation_id, store)
     
     if response.get("action") == "send" and response.get("body"):
-        store.add_conversation_turn(req.conversation_id, "vera", response["body"])
-
-    if response.get("action") == "tool":
-        tool_name = response.get("tool_name")
-        tool_args = response.get("tool_args", {})
-        execute_tool(tool_name, req.merchant_id, tool_args)
-        store.log_tool_execution(
-            merchant_id=req.merchant_id,
-            tool_name=tool_name or "unknown",
-            args=json.dumps(tool_args)
-        )
-        response["body"] = f"Done! I've executed {tool_name} for you."
         store.add_conversation_turn(req.conversation_id, "vera", response["body"])
 
     return response
