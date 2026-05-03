@@ -148,6 +148,7 @@ The merchant (or customer) just replied. Determine the best response.
 Active offers: {json.dumps([o for o in merchant.get('offers', []) if o.get('status') == 'active'])}
 Customer aggregate: {json.dumps(merchant.get('customer_aggregate', {}))}
 Category Peer Benchmarks: {json.dumps(category.get('peer_stats', {}))}
+Merchant Performance: {json.dumps(merchant.get('performance', {}))}
 Long-term Merchant Profile: {merchant_profile or 'None'}
 
 OUTPUT FORMAT (JSON only):
