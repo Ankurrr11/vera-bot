@@ -7,24 +7,30 @@ LIVE_URL = "https://vera-bot-vwrr.onrender.com"
 
 async def omni_test_live():
     async with httpx.AsyncClient(timeout=60.0) as client:
-        print("--- FORCING FRESH CONTEXT PUSH ---")
+        print("--- VERIFYING LIVE DEPLOYMENT ---")
         
-        # Use a BRAND NEW ID to ensure no old data interference
+        # 1. Check Version
+        r0 = await client.get(f"{LIVE_URL}/")
+        print(f"  Live Version: {r0.json().get('version', 'unknown')}")
+        
+        if "1.0.2" not in r0.json().get('version', ''):
+            print("  [WAIT] Server still on old version. Waiting...")
+            return
+
+        # 2. SETUP DATA
         M_ID = f"m_final_{int(datetime.utcnow().timestamp())}"
-        
-        # 1. SETUP DATA
-        r1 = await client.post(f"{LIVE_URL}/v1/context", json={
+        await client.post(f"{LIVE_URL}/v1/context", json={
             "scope": "merchant", "context_id": M_ID, "version": 1,
             "payload": {
                 "merchant_id": M_ID,
-                "identity": {"name": "Fresh Dental", "owner_first_name": "Ankur"},
+                "identity": {"name": "Royal Dental", "owner_first_name": "Ankur"},
                 "category_slug": "dentists",
                 "performance": {"ctr": 0.008}
             }
         })
-        print(f"  Merchant Push ({M_ID}): {r1.status_code} - {r1.text}")
+        print(f"  Fresh Context ({M_ID}) Pushed.")
         
-        # 2. TEST: DATA-DRIVEN REASONING
+        # 3. TEST: DATA-DRIVEN REASONING
         print("\n[TEST: DATA-DRIVEN REASONING]")
         resp = await client.post(f"{LIVE_URL}/v1/reply", json={
             "conversation_id": f"conv_{M_ID}", "merchant_id": M_ID,
