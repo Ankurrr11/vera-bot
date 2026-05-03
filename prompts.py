@@ -34,14 +34,14 @@ HARD RULES:
 OUTPUT FORMAT — JSON only:
 {
   "action": "send" or "tool" or "end",
+  "tool_name": "Optional. E.g. 'pause_campaign', 'update_listing', 'reset_password'",
+  "tool_args": {"reason": "string"},
   "body": "WhatsApp text (Professional English, Clinical/Operator tone)",
   "cta": "binary_yes_no" or "open_ended" or "none" or "binary_confirm_cancel",
   "suppression_key": "Unique string (e.g. 'perf:dip:views:W18')",
   "send_as": "vera" or "merchant_on_behalf",
   "rationale": "strategic lever used + why this signal was picked",
-  "attachment_url": "Optional image URL",
-  "tool_name": "Optional",
-  "tool_args": {}
+  "attachment_url": "Optional image URL"
 }"""
 
 

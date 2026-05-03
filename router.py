@@ -6,11 +6,10 @@ ROUTER_MODEL = "llama-3.1-8b-instant"
 
 ROUTER_PROMPT = """You are an intent classifier. Given the merchant's message, classify it into exactly ONE of the following buckets:
 - HOSTILE: Merchant is angry, says stop, spam, or explicitly opts out.
-- AGREEMENT: Merchant says yes, ok, interested, let's do it, sure.
+- AGREEMENT: Merchant says yes, ok, interested, let's do it, sure, or picks a time/slot.
 - QUESTION: Merchant asks a question about the offer, pricing, or how it works.
-- NEGOTIATION: Merchant wants a better deal or suggests different terms.
-- TOOL_REQUEST: Merchant explicitly asks to pause, stop, or change a setting (e.g. "pause my campaign", "update my discount").
-- OUT_OF_SCOPE: Merchant is asking for jokes, weather, news, personal info, or anything not related to their business growth on magicpin.
+- TOOL_REQUEST: Merchant explicitly asks to pause, stop, or change a setting.
+- UNKNOWN: Any other message.
 
 Return ONLY a JSON object: {"intent": "BUCKET_NAME"}
 """
@@ -35,8 +34,8 @@ def route_intent(merchant_message: str) -> str:
         print(f"[ROUTER] HARD BLOCK HIT: {merchant_message}")
         return "END"
 
-    # 1. AUTO-REPLY BLOCK
-    auto_reply_keywords = ["thank", "thanks", "ok", "okay", "thx", "thnk", "theek", "got it", "noted"]
+    # 1. AUTO-REPLY BLOCK (Only for pure acknowledgements)
+    auto_reply_keywords = ["thank", "thanks", "thx", "thnk", "theek", "got it", "noted"]
     if any(k in msg_lower for k in auto_reply_keywords) and len(merchant_message.split()) < 4:
         return "END"
 
@@ -55,7 +54,8 @@ def route_intent(merchant_message: str) -> str:
         
         result = json.loads(response.choices[0].message.content)
         intent = result.get("intent", "QUESTION").upper()
-        return "END" if intent == "OUT_OF_SCOPE" else intent
+        print(f"[ROUTER INTENT] {intent} for message: {merchant_message}")
+        return intent
     except Exception as e:
         print(f"[ROUTER] Failed to route: {e}")
         return "QUESTION"

@@ -2,6 +2,7 @@
 FastAPI server — all 5 required endpoints for the magicpin judge.
 """
 import os
+import json
 from datetime import datetime
 from typing import Optional
 from fastapi import FastAPI, BackgroundTasks

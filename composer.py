@@ -30,6 +30,7 @@ def call_groq(system: str, user: str) -> dict:
         content = response.choices[0].message.content
         return json.loads(content)
     except Exception as e:
+        print(f"[GROQ ERROR] {str(e)}")
         return {"error": str(e)}
 
 
