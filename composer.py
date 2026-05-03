@@ -173,6 +173,13 @@ def handle_reply(merchant_message: str, conversation_history: list,
     )
     result = call_groq(SYSTEM_PROMPT, user_prompt)
 
+    # Ensure benchmark line is present in the reply body
+    if "Benchmark:" not in result.get("body", "") and category.get("peer_stats"):
+        avg_ctr = category["peer_stats"].get("avg_ctr")
+        if avg_ctr is not None:
+            benchmark_line = f"Benchmark: CTR {avg_ctr * 100:.1f}%"
+            result["body"] = f"{benchmark_line}\n{result.get('body','')}"
+
     if "error" in result:
         return {"action": "send", "body": "Got it — let me know if there's anything I can help with.",
                 "cta": "open_ended", "rationale": "Fallback reply."}
