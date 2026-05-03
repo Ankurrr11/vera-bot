@@ -31,7 +31,7 @@ def route_intent(merchant_message: str) -> str:
         "movie", "song", "play", "game"
     ]
     if any(k in msg_lower for k in off_topic_keywords):
-        print(f"[ROUTER] HARD BLOCK HIT: {merchant_message}")
+        print(f"[ROUTER] HARD BLOCK HIT")
         return "END"
 
     # 1. AUTO-REPLY BLOCK (Only for pure acknowledgements)
