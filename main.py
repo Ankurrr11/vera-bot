@@ -19,7 +19,7 @@ from tools import execute_tool
 from router import route_intent
 from memory import update_merchant_profile
 
-app = FastAPI(title="Vera Bot", version=os.getenv("BOT_VERSION", "1.0.1-LEGENDARY"))
+app = FastAPI(title="Vera Bot", version=os.getenv("BOT_VERSION", "1.0.2-GROUNDED"))
 
 
 # ── MODELS ──────────────────────────────────────────────────────────────────
