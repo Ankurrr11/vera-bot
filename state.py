@@ -45,10 +45,26 @@ class StateStore:
             c.execute('''CREATE TABLE IF NOT EXISTS cta_analytics
                          (category_slug TEXT, cta_name TEXT, attempts INTEGER, successes INTEGER,
                           PRIMARY KEY (category_slug, cta_name))''')
+            # Mapping conversation to trigger
+            c.execute('''CREATE TABLE IF NOT EXISTS conversation_to_trigger
+                         (conversation_id TEXT PRIMARY KEY, trigger_id TEXT)''')
             # V2 Enterprise: Tool Executions
             c.execute('''CREATE TABLE IF NOT EXISTS tool_executions
                          (id INTEGER PRIMARY KEY AUTOINCREMENT, merchant_id TEXT, tool_name TEXT, tool_args TEXT, ts TEXT)''')
             conn.commit()
+
+    def set_conversation_trigger(self, conversation_id: str, trigger_id: str):
+        with self._get_conn() as conn:
+            c = conn.cursor()
+            c.execute("REPLACE INTO conversation_to_trigger (conversation_id, trigger_id) VALUES (?, ?)", (conversation_id, trigger_id))
+            conn.commit()
+
+    def get_conversation_trigger_id(self, conversation_id: str) -> Optional[str]:
+        with self._get_conn() as conn:
+            c = conn.cursor()
+            c.execute("SELECT trigger_id FROM conversation_to_trigger WHERE conversation_id=?", (conversation_id,))
+            row = c.fetchone()
+            return row[0] if row else None
 
     def store_context(self, scope: str, context_id: str, version: int, payload: dict, delivered_at: str) -> dict:
         with self._get_conn() as conn:

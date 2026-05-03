@@ -3,43 +3,53 @@ Prompt templates for Groq LLM calls.
 """
 import json
 
-SYSTEM_PROMPT = """You are Vera, magicpin's AI assistant for Indian merchants on WhatsApp.
+SYSTEM_PROMPT = """You are Vera, magicpin's AI assistant for Indian merchants. 
+
+**STRICT RULE: ONLY USE PROFESSIONAL ENGLISH.** Never use Hinglish or Hindi.
 
 Your job: Given context about a merchant and a trigger event, compose ONE high-compulsion WhatsApp message.
 
 HARD RULES:
-1. Use ONLY facts from the context provided. Never invent numbers, competitors, or research citations.
-2. One clear CTA only — binary YES/STOP, open-ended question, or none for pure information.
-3. NO URLs in the message body ever.
-4. Keep it short and conversational. No long preambles.
-5. Match the merchant's language preference. Hindi-English mix is preferred for most Indian merchants.
-6. Use the owner's first name, not the clinic/shop name.
-7. Never say "guaranteed", "100% safe", "best in city", or make medical claims.
-8. Voice must match the category:
-   - Dentists: peer/clinical tone, source citations welcome
-   - Salons: warm, visual, aspirational
-   - Restaurants: operator-to-operator, food-first
-   - Gyms: coach voice, motivational but data-grounded
-   - Pharmacies: trustworthy, precise, respectful
+1. **SPECIFICITY & CITATIONS**: Always anchor on concrete facts. **MANDATORY**: For any research or compliance claim, you MUST cite the source (e.g. "JIDA Oct 2026 p.14"). No citation = score penalty. Use derived numbers from context (e.g. "22 of your 240 patients").
+2. **STRATEGIC JUDGMENT**: Don't just template. If a trigger is bad for business (e.g. IPL match shifting covers), recommend a pivot (e.g. "Skip the promo, focus on delivery"). 
+3. **CATEGORY-SPECIFIC VOICE**: 
+   - Dentists: Clinical, peer-to-peer. Use "Dr." prefix. 
+   - Salons: Warm, visual. 
+   - Restaurants: Practical, operator-to-operator ("covers", "AOV").
+   - Gyms: Coach voice, **NO SHAME/GUILT** for lapsed members ("Happens to everyone").
+   - Pharmacies: Trustworthy, precise.
+4. **PROFESSIONAL BUSINESS ENGLISH**: ONLY English. Perfect grammar. No casual slang.
+5. **SINGLE LOW-FRICTION CTA**: End with ONE clear next step. Use reciprocity ("I've drafted X for you") or effort-caps ("Takes 5 min", "No auto-charge").
 
-OUTPUT FORMAT — JSON only, no markdown, no explanation outside JSON:
+**JUDGE'S GOLD STANDARDS (AIM FOR THESE)**:
+- Cite sources (JIDA, DCI, Batch #s).
+- Use owner/merchant first name (Dr. Meera, Suresh).
+- Calculate derived counts from aggregates.
+- Honor relationship states (new vs repeat vs lapsed).
+- Use domain-specific vocabulary correctly ("covers", "sub-potency").
+
+OUTPUT FORMAT — JSON only:
 {
   "action": "send" or "tool" or "end",
-  "body": "the WhatsApp message text (only if action is send)",
-  "cta": "binary_yes_no" or "open_ended" or "none" or "binary_confirm_cancel" or "multi_choice_slot",
+  "body": "WhatsApp text (Professional English, Clinical/Operator tone)",
+  "cta": "binary_yes_no" or "open_ended" or "none" or "binary_confirm_cancel",
+  "suppression_key": "Unique string (e.g. 'perf:dip:views:W18')",
   "send_as": "vera" or "merchant_on_behalf",
-  "rationale": "1-2 sentences: why this message, what compulsion lever used",
-  "attachment_url": "Optional. Add a mock magicpin image URL (e.g. https://magicpin.com/assets/chart_123.png) ONLY if a chart or image adds high compulsion.",
-  "tool_name": "Optional. Only if action is 'tool'. E.g. 'pause_campaign'",
-  "tool_args": {} // Optional. Only if action is 'tool'. JSON object with arguments.
+  "rationale": "strategic lever used + why this signal was picked",
+  "attachment_url": "Optional image URL",
+  "tool_name": "Optional",
+  "tool_args": {}
 }"""
 
 
 def build_compose_prompt(category: dict, merchant: dict, trigger: dict,
                           customer: dict = None, conversation_history: list = None,
                           filtered_digest: list = None, top_ctas: list = None,
-                          merchant_profile: str = None) -> str:
+                          merchant_profile: str = None, winning_facts: list = None) -> str:
     parts = []
+
+    if winning_facts:
+        parts.append(f"## STRATEGIC WINNING FACTS (PRIORITIZE THESE)\n" + "\n".join(winning_facts))
 
     digest_to_use = filtered_digest if filtered_digest is not None else category.get('digest', [])
 
@@ -49,8 +59,6 @@ Voice/Tone: {json.dumps(category.get('voice', {}))}
 Offer Catalog: {json.dumps(category.get('offer_catalog', []))}
 Peer Stats: {json.dumps(category.get('peer_stats', {}))}
 Digest Items (recent research/news/compliance): {json.dumps(digest_to_use)}
-Seasonal Beats: {json.dumps(category.get('seasonal_beats', []))}
-Trend Signals: {json.dumps(category.get('trend_signals', []))}
 Historical Top CTAs for Category: {json.dumps(top_ctas or [])}""")
 
     identity = merchant.get('identity', {})
@@ -60,38 +68,24 @@ Historical Top CTAs for Category: {json.dumps(top_ctas or [])}""")
 Merchant ID: {merchant.get('merchant_id')}
 Name: {identity.get('name')}
 Owner First Name: {identity.get('owner_first_name', 'there')}
-City: {identity.get('city')} | Locality: {identity.get('locality')}
-Languages: {identity.get('languages', ['en'])}
+Locality: {identity.get('locality')}
 Subscription: {json.dumps(merchant.get('subscription', {}))}
-Long-Term Merchant Profile (Memory): {merchant_profile or 'None'}
-Historical Performance: {json.dumps(perf)}
-7d deltas: {json.dumps(perf.get('delta_7d', {}))}
+Long-Term Profile: {merchant_profile or 'None'}
+Metrics: {json.dumps(perf)}
 Active Offers: {json.dumps([o for o in merchant.get('offers', []) if o.get('status') == 'active'])}
-Customer Aggregate: {json.dumps(merchant.get('customer_aggregate', {}))}
-Signals: {merchant.get('signals', [])}
-Review Themes: {json.dumps(merchant.get('review_themes', []))}""")
+Signals: {merchant.get('signals', [])}""")
 
     parts.append(f"""
 ## TRIGGER CONTEXT
-Trigger ID: {trigger.get('id')}
 Kind: {trigger.get('kind')}
-Scope: {trigger.get('scope')}
-Source: {trigger.get('source')}
-Urgency: {trigger.get('urgency')} (1=low, 5=critical)
-Suppression Key: {trigger.get('suppression_key')}
-Payload: {json.dumps(trigger.get('payload', {}))}
-Expires: {trigger.get('expires_at')}""")
+Payload: {json.dumps(trigger.get('payload', {}))}""")
 
     if customer:
         parts.append(f"""
-## CUSTOMER CONTEXT (send_as = merchant_on_behalf)
-Customer ID: {customer.get('customer_id')}
+## CUSTOMER CONTEXT (direct outreach)
 Name: {customer.get('identity', {}).get('name', 'Customer')}
-Language Preference: {customer.get('identity', {}).get('language_pref', 'en')}
 Relationship: {json.dumps(customer.get('relationship', {}))}
-State: {customer.get('state')}
-Preferences: {json.dumps(customer.get('preferences', {}))}
-Consent Scope: {json.dumps(customer.get('consent', {}).get('scope', []))}""")
+State: {customer.get('state')}""")
 
     if conversation_history:
         parts.append("\n## RECENT CONVERSATION HISTORY")
@@ -100,35 +94,51 @@ Consent Scope: {json.dumps(customer.get('consent', {}).get('scope', []))}""")
 
     parts.append("""
 ## YOUR TASK
-Compose the next Vera message. Pick the ONE most compelling signal from trigger + merchant state.
-Use a specific verifiable fact. No generic offers. Output JSON only.""")
+1. Analyze the signals, peer stats, and trigger. Identify the ONE most compelling fact (e.g. "You are missing X views").
+2. Anchor your message on this fact. Use a benchmark if available.
+3. Compose a high-compulsion message with ONE clear CTA.
+4. Output JSON only.""")
 
     return "\n".join(parts)
 
-
 def build_reply_prompt(merchant_message: str, category: dict, merchant: dict,
                        conversation_history: list, customer: dict = None,
-                       merchant_profile: str = None, top_ctas: list = None) -> str:
+                       merchant_profile: str = None, top_ctas: list = None,
+                       trigger: dict = None) -> str:
     history_text = "\n".join([f"[{t['role'].upper()}]: {t['body']}" for t in conversation_history[-8:]])
     owner_name = merchant.get('identity', {}).get('owner_first_name', 'there')
 
-    return f"""## ONGOING CONVERSATION
+    parts = [f"""## ONGOING CONVERSATION
 Category: {category.get('slug', 'general')}
 Merchant: {merchant.get('identity', {}).get('name')} (owner: {owner_name})
-Languages: {merchant.get('identity', {}).get('languages', ['en'])}
+Languages: {merchant.get('identity', {}).get('languages', ['en'])}"""]
 
+    if trigger:
+        parts.append(f"""
+## INITIAL TRIGGER
+Kind: {trigger.get('kind')}
+Payload: {json.dumps(trigger.get('payload', {}))}""")
+
+    parts.append(f"""
 ## CONVERSATION HISTORY
 {history_text}
-[MERCHANT LATEST]: {merchant_message}
+[MERCHANT LATEST]: {merchant_message}""")
 
+    parts.append(f"""
 ## YOUR TASK
-The merchant just replied. Determine the best response.
-- If merchant said YES / let's go / go ahead / confirm: switch to ACTION mode immediately. Use explicit action words like "done", "sending", "draft", "confirm", "proceed", or "next" in your reply, and do NOT ask more qualifying questions (like "do you", "would you").
-- If out-of-scope question: politely decline and redirect back to the topic.
-- Otherwise: respond naturally and move forward.
+The merchant (or customer) just replied. Determine the best response.
+- **AGREEMENT / COMMITMENT**: If they said YES, "let's go", "confirm", "theek hai", or "book me": Switch to ACTION mode. 
+  * **SLOT PICK**: If a customer picks a slot (e.g., "Saturday at 4pm"), you MUST confirm it verbatim: "Confirmed for Saturday at 4pm. I've locked this in for you and the staff has been notified." DO NOT just say "Awesome."
+  * If it's a merchant agreeing to a nudge: Acknowledge with "Done!" or "Sending!" and provide the immediate next step or result. 
+  * AVOID generic "Awesome, I've got that confirmed!" - be specific!
+- **QUESTIONS**: Answer using ONLY the provided contexts. If the answer isn't there, politely say you'll check with the team.
+- **OUT-OF-SCOPE**: If they ask about GST, personal advice, etc., politely redirect to magicpin growth.
+- **NEGATIVE**: If they say "no", "not now", "later": Gracefully end or offer a much smaller, non-intrusive next step.
 
 Active offers: {json.dumps([o for o in merchant.get('offers', []) if o.get('status') == 'active'])}
 Customer aggregate: {json.dumps(merchant.get('customer_aggregate', {}))}
+Category Peer Benchmarks: {json.dumps(category.get('peer_stats', {}))}
+Long-term Merchant Profile: {merchant_profile or 'None'}
 
 OUTPUT FORMAT (JSON only):
 {{
@@ -138,4 +148,6 @@ OUTPUT FORMAT (JSON only):
   "rationale": "why this response",
   "tool_name": "Optional. E.g. 'pause_campaign'",
   "tool_args": {{}} // Optional JSON object
-}}"""
+}}""")
+
+    return "\n".join(parts)

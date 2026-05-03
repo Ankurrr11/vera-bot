@@ -147,8 +147,16 @@ def tick(req: TickRequest):
             store.record_cta_attempt(category_slug, composed["cta"])
 
         store.add_conversation_turn(conversation_id, "vera", composed.get("body", ""))
-        suppression_key = trigger.get("suppression_key", f"sent:{trigger_id}")
+        store.set_conversation_trigger(conversation_id, trigger_id)
+        suppression_key = composed.get("suppression_key") or trigger.get("suppression_key", f"sent:{trigger_id}")
         store.suppress(suppression_key)
+
+        if composed.get("action") == "tool":
+            store.log_tool_execution(
+                merchant_id=merchant_id,
+                tool_name=composed.get("tool_name", "unknown"),
+                args=json.dumps(composed.get("tool_args", {}))
+            )
 
         identity = merchant.get("identity", {})
         template_params = []
@@ -184,38 +192,49 @@ def reply(req: ReplyRequest, background_tasks: BackgroundTasks):
     if store.is_closed(req.conversation_id):
         return {"action": "end", "rationale": "Conversation already closed."}
 
-    # FAST-PATH V2 ROUTING
+    # 1. RECORD TURN
+    store.add_conversation_turn(req.conversation_id, "merchant", req.message)
+    conv_history = store.get_conversation(req.conversation_id)
+
+    # 2. VERBATIM LOOP DETECTION
+    # Check if this exact message has been sent by the merchant 3+ times in this conversation
+    merchant_messages = [t["body"] for t in conv_history if t["role"] == "merchant"]
+    verbatim_count = 0
+    if len(merchant_messages) >= 3:
+        last_msg = merchant_messages[-1].strip().lower()
+        if all(m.strip().lower() == last_msg for m in merchant_messages[-3:]):
+            verbatim_count = 3
+
+    # 3. AUTO-REPLY & LOOP HANDLING
+    is_auto = is_auto_reply(req.message) or verbatim_count >= 3
+    if is_auto:
+        count = store.get_auto_reply_count(req.merchant_id) + 1
+        store.set_auto_reply_count(req.merchant_id, count)
+        
+        if count >= 3:
+            store.close_conversation(req.conversation_id)
+            return {"action": "end", "rationale": f"Auto-reply loop detected ({count}x). Graceful exit."}
+        elif count == 2:
+            # Instead of a long wait, let's try one more polite nudge or wait shorter
+            return {"action": "wait", "wait_seconds": 1800, "rationale": "Auto-reply detected twice. Waiting 30 mins."}
+        else:
+            return {"action": "send", 
+                    "body": "It looks like an automated response is active! If you'd like to continue our chat, please just reply with 'YES' or any message.",
+                    "cta": "binary_yes_no", 
+                    "rationale": "First auto-reply detected. Nudging for manual response."}
+    else:
+        # Reset auto-reply count on real message
+        store.set_auto_reply_count(req.merchant_id, 0)
+
+    # 4. INTENT ROUTING (Fast-path for hostility only)
     intent = route_intent(req.message)
     if intent == "HOSTILE":
         store.close_conversation(req.conversation_id)
         background_tasks.add_task(update_merchant_profile, req.merchant_id, req.conversation_id, store)
-        return {"action": "end", "rationale": "Router fast-path: Hostile intent detected."}
-    elif intent == "AGREEMENT":
-        store.add_conversation_turn(req.conversation_id, "merchant", req.message)
-        msg = "Awesome, I've got that confirmed!"
-        store.add_conversation_turn(req.conversation_id, "vera", msg)
-        merchant_entry = store.get_merchant(req.merchant_id)
-        if merchant_entry:
-            category_slug = merchant_entry["payload"].get("category_slug")
-            # We don't know exact CTA here easily, but we'll record a generic success just to show analytics working
-            store.record_cta_success(category_slug, "binary_yes_no")
-        return {"action": "send", "body": msg, "cta": "none", "rationale": "Router fast-path: Agreement."}
-
-    store.add_conversation_turn(req.conversation_id, "merchant", req.message)
-
-    if is_auto_reply(req.message):
-        count = store.get_auto_reply_count(req.merchant_id) + 1
-        store.set_auto_reply_count(req.merchant_id, count)
-        if count >= 3:
-            store.close_conversation(req.conversation_id)
-            return {"action": "end", "rationale": f"Auto-reply {count}x in a row. Closing conversation."}
-        elif count == 2:
-            return {"action": "wait", "wait_seconds": 86400, "rationale": "Auto-reply twice. Waiting 24h."}
-        else:
-            return {"action": "send", "body": "Looks like an auto-reply 😊 When you see this, just reply YES to continue.",
-                    "cta": "binary_yes_no", "rationale": "First auto-reply detected. Flagging for owner."}
-    else:
-        store.set_auto_reply_count(req.merchant_id, 0)
+        return {"action": "end", "rationale": "Hostile intent detected. Closing conversation."}
+    
+    # 5. LLM COMPOSER (Grounded response)
+    # Agreement and other intents now go to the LLM for high-quality, grounded responses.
 
     merchant_entry = store.get_merchant(req.merchant_id)
     if not merchant_entry:
@@ -236,10 +255,18 @@ def reply(req: ReplyRequest, background_tasks: BackgroundTasks):
     top_ctas = store.get_top_ctas(category.get("slug", "general"))
 
     conv_history = store.get_conversation(req.conversation_id)
+    trigger_id = store.get_conversation_trigger_id(req.conversation_id)
+    trigger = None
+    if trigger_id:
+        trigger_entry = store.get_trigger(trigger_id)
+        if trigger_entry:
+            trigger = trigger_entry["payload"]
+
     response = handle_reply(
         merchant_message=req.message, conversation_history=conv_history,
         category=category, merchant=merchant, customer=customer,
-        merchant_profile=merchant_profile, top_ctas=top_ctas
+        merchant_profile=merchant_profile, top_ctas=top_ctas,
+        trigger=trigger
     )
 
     if response.get("action") == "tool":

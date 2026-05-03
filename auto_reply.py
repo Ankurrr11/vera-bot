@@ -15,6 +15,12 @@ AUTO_REPLY_PATTERNS = [
     "we are currently closed",
     "outside of our business hours",
     "your message has been received",
+    "we will be with you shortly",
+    "thanks for reaching out",
+    "please leave a message",
+    "shukriya",
+    "jaankari ke liye",
+    "sujhaav hamari team tak",
 ]
 
 OPT_OUT_SIGNALS = [
@@ -27,7 +33,8 @@ ACTION_SIGNALS = [
     "yes", "haan", "ha ", "ok let", "let's do", "lets do",
     "go ahead", "please proceed", "karo", "kar do", "theek hai",
     "sure", "confirm", "agreed", "sounds good", "mujhe join",
-    "judrna hai", "i want to join",
+    "judrna hai", "i want to join", "book me", "schedule", "appointment",
+    "ready to review", "let's start", "go for it",
 ]
 
 
