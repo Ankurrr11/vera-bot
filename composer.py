@@ -144,6 +144,28 @@ def handle_reply(merchant_message: str, conversation_history: list,
     if is_opt_out(merchant_message):
         return {"action": "end", "rationale": "Merchant explicitly opted out. Closing conversation."}
 
+    # Auto-reply loop prevention
+    if is_auto_reply(merchant_message):
+        return {"action": "end", "rationale": "Detected auto-reply pattern, ending to prevent loop."}
+
+    import re
+    # Slot pick detection – verbatim confirmation
+    slot_patterns = [
+        r"\b(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\s+\d{1,2}\s+[a-z]+\s*,?\s*\d{4}?\s*,?\s*\d{1,2}[:]\d{2}\b",
+        r"\b\d{1,2}\s+[a-z]+\s+\d{4}\b",
+        r"\b\d{1,2}[:]\d{2}\b",
+    ]
+    for pat in slot_patterns:
+        m = re.search(pat, merchant_message, re.IGNORECASE)
+        if m:
+            slot_str = m.group(0)
+            return {
+                "action": "send",
+                "body": f"Confirmed for {slot_str}.",
+                "cta": "none",
+                "rationale": "Slot pick confirmed with exact details."
+            }
+
     # EDGE CASE: If merchant message is a strong commitment but history is empty/sparse,
     # we should check if they are likely replying to a generic or missing turn.
     is_commitment = any(s in merchant_message.lower() for s in ["yes", "karo", "do it", "let's go", "confirm"])
