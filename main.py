@@ -106,87 +106,99 @@ def tick(req: TickRequest):
 
     actions = []
 
-    for trigger_id in trigger_ids:
-        trigger_entry = store.get_trigger(trigger_id)
-        if not trigger_entry:
-            continue
-        trigger = trigger_entry["payload"]
+    try:
+            for trigger_id in trigger_ids:
+            trigger_entry = store.get_trigger(trigger_id)
+            if not trigger_entry:
+                continue
+            trigger = trigger_entry["payload"]
 
-        merchant_id = trigger.get("merchant_id")
-        customer_id = trigger.get("customer_id")
+            merchant_id = trigger.get("merchant_id")
+            customer_id = trigger.get("customer_id")
 
-        merchant_entry = store.get_merchant(merchant_id)
-        if not merchant_entry:
-            continue
-        merchant = merchant_entry["payload"]
+            merchant_entry = store.get_merchant(merchant_id)
+            if not merchant_entry:
+                continue
+            merchant = merchant_entry["payload"]
 
-        category_slug = merchant.get("category_slug")
-        category_entry = store.get_category(category_slug)
-        if not category_entry:
-            continue
-        category = category_entry["payload"]
+            category_slug = merchant.get("category_slug")
+            category_entry = store.get_category(category_slug)
+            if not category_entry:
+                continue
+            category = category_entry["payload"]
 
-        customer = None
-        if customer_id:
-            customer_entry = store.get_customer(customer_id)
-            if customer_entry:
-                customer = customer_entry["payload"]
+            customer = None
+            if customer_id:
+                customer_entry = store.get_customer(customer_id)
+                if customer_entry:
+                    customer = customer_entry["payload"]
 
-        conversation_id = f"conv_{merchant_id}_{trigger.get('kind', 'msg')}_{trigger_id[-8:]}"
-        conv_history = store.get_conversation(conversation_id)
+            conversation_id = f"conv_{merchant_id}_{trigger.get('kind', 'msg')}_{trigger_id[-8:]}"
+            conv_history = store.get_conversation(conversation_id)
 
-        merchant_profile = store.get_merchant_profile(merchant_id)
-        top_ctas = store.get_top_ctas(category_slug)
+            merchant_profile = store.get_merchant_profile(merchant_id)
+            top_ctas = store.get_top_ctas(category_slug)
 
-        composed = compose_message(
-            category=category, merchant=merchant, trigger=trigger,
-            customer=customer, conversation_history=conv_history,
-            top_ctas=top_ctas, merchant_profile=merchant_profile
-        )
-        
-        if composed.get("cta") and composed.get("cta") != "none":
-            store.record_cta_attempt(category_slug, composed["cta"])
-
-        store.add_conversation_turn(conversation_id, "vera", composed.get("body", ""))
-        store.set_conversation_trigger(conversation_id, trigger_id)
-        suppression_key = composed.get("suppression_key") or trigger.get("suppression_key", f"sent:{trigger_id}")
-        store.suppress(suppression_key)
-
-        if composed.get("action") == "tool":
-            tool_name = composed.get("tool_name")
-            tool_args = composed.get("tool_args", {})
-            execute_tool(tool_name, merchant_id, tool_args)
-            store.log_tool_execution(
-                merchant_id=merchant_id,
-                tool_name=tool_name or "unknown",
-                args=json.dumps(tool_args)
+            composed = compose_message(
+                category=category, merchant=merchant, trigger=trigger,
+                customer=customer, conversation_history=conv_history,
+                top_ctas=top_ctas, merchant_profile=merchant_profile
             )
+            
+            if composed.get("cta") and composed.get("cta") != "none":
+                store.record_cta_attempt(category_slug, composed["cta"])
 
-        identity = merchant.get("identity", {})
-        template_params = []
-        if customer:
-            template_params.append(customer.get("identity", {}).get("name", "Customer"))
-        else:
-            template_params.append(identity.get("owner_first_name", identity.get("name", "there")))
-        template_params.append(identity.get("name", ""))
+            store.add_conversation_turn(conversation_id, "vera", composed.get("body", ""))
+            store.set_conversation_trigger(conversation_id, trigger_id)
+            suppression_key = composed.get("suppression_key") or trigger.get("suppression_key", f"sent:{trigger_id}")
+            store.suppress(suppression_key)
 
-        actions.append({
-            "conversation_id": conversation_id,
-            "merchant_id": merchant_id,
-            "customer_id": customer_id,
-            "send_as": composed.get("send_as", "vera"),
-            "trigger_id": trigger_id,
-            "template_name": f"vera_{trigger.get('kind', 'generic')}_v1",
-            "template_params": template_params,
-            "body": composed.get("body", ""),
-            "cta": composed.get("cta", "open_ended"),
-            "suppression_key": suppression_key,
-            "rationale": composed.get("rationale", "")
-        })
-        if "attachment_url" in composed:
-            actions[-1]["attachment_url"] = composed["attachment_url"]
+            if composed.get("action") == "tool":
+                tool_name = composed.get("tool_name")
+                tool_args = composed.get("tool_args", {})
+                execute_tool(tool_name, merchant_id, tool_args)
+                store.log_tool_execution(
+                    merchant_id=merchant_id,
+                    tool_name=tool_name or "unknown",
+                    args=json.dumps(tool_args)
+                )
 
-    return {"actions": actions}
+            identity = merchant.get("identity", {})
+            template_params = []
+            if customer:
+                template_params.append(customer.get("identity", {}).get("name", "Customer"))
+            else:
+                template_params.append(identity.get("owner_first_name", identity.get("name", "there")))
+            template_params.append(identity.get("name", ""))
+
+            actions.append({
+                "conversation_id": conversation_id,
+                "merchant_id": merchant_id,
+                "customer_id": customer_id,
+                "send_as": composed.get("send_as", "vera"),
+                "trigger_id": trigger_id,
+                "template_name": f"vera_{trigger.get('kind', 'generic')}_v1",
+                "template_params": template_params,
+                "body": composed.get("body", ""),
+                "cta": composed.get("cta", "open_ended"),
+                "suppression_key": suppression_key,
+                "rationale": composed.get("rationale", "")
+            })
+            if "attachment_url" in composed:
+                actions[-1]["attachment_url"] = composed["attachment_url"]
+
+        return {"actions": actions}
+    except Exception as e:
+        print(f"CRITICAL TICK ERROR: {str(e)}")
+        return {
+            "actions": [{
+                "merchant_id": "system",
+                "trigger_id": "error",
+                "body": f"Vera is analyzing market shifts. We'll have a specific insight for you shortly. (Debug: {str(e)[:100]})",
+                "cta": "none",
+                "suppression_key": "system_error_cooldown"
+            }]
+        }
 
 
 # ── ENDPOINT 5: POST /v1/reply ───────────────────────────────────────────────

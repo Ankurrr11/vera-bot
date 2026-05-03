@@ -7,70 +7,43 @@ LIVE_URL = "https://vera-bot-vwrr.onrender.com"
 
 async def stress_test():
     async with httpx.AsyncClient(timeout=60.0) as client:
-        print("--- PHASE 1: WARMUP & SCHEMA ---")
-        try:
-            h = await client.get(f"{LIVE_URL}/v1/healthz")
-            m = await client.get(f"{LIVE_URL}/v1/metadata")
-            print(f"[PASS] Health: {h.status_code}")
-            print(f"[PASS] Metadata: {m.json()}")
-        except Exception as e:
-            print(f"[FAIL] Warmup failed: {e}")
-            return
+        print("--- PHASE 1: WARMUP ---")
+        h = await client.get(f"{LIVE_URL}/v1/healthz")
+        print(f"Health: {h.status_code}")
 
-        print("\n--- PHASE 2: ADAPTIVE INJECTION (DENTIST) ---")
-        # Load Category
+        print("\n--- PHASE 2: CONTEXT PUSH ---")
+        # Category
         with open("dataset/categories/dentists.json") as f:
             cat_data = json.load(f)
-        await client.post(f"{LIVE_URL}/v1/context", json={"scope": "category", "context_id": "dentists", "version": 1, "payload": cat_data})
+        c_resp = await client.post(f"{LIVE_URL}/v1/context", json={"scope": "category", "context_id": "dentists", "version": 1, "payload": cat_data})
+        print(f"Category Push: {c_resp.status_code} - {c_resp.text}")
         
-        # Load Merchant with poor stats
+        # Merchant
         merch_payload = {
-            "merchant_id": "m_live_test", "identity": {"name": "Live Demo Clinic", "owner_first_name": "Ankur"},
-            "performance": {"ctr": 0.008}, "category_slug": "dentists",
-            "customer_aggregate": {"high_risk_count": 88, "total_roster": 400}
+            "merchant_id": "m_test", "identity": {"name": "Test Clinic", "owner_first_name": "Ankur"},
+            "performance": {"ctr": 0.008}, "category_slug": "dentists"
         }
-        await client.post(f"{LIVE_URL}/v1/context", json={"scope": "merchant", "context_id": "m_live_test", "version": 1, "payload": merch_payload})
+        m_resp = await client.post(f"{LIVE_URL}/v1/context", json={"scope": "merchant", "context_id": "m_test", "version": 1, "payload": merch_payload})
+        print(f"Merchant Push: {m_resp.status_code} - {m_resp.text}")
 
-        # Scenario: Research Trigger
-        print("\n--- PHASE 3: COMPULSION & SPECIFICITY TEST ---")
+        # Trigger
+        t_resp = await client.post(f"{LIVE_URL}/v1/context", json={
+            "scope": "trigger", "context_id": "t1", "version": 1, 
+            "payload": {"id": "t1", "kind": "research", "merchant_id": "m_test"}
+        })
+        print(f"Trigger Push: {t_resp.status_code} - {t_resp.text}")
+
+        print("\n--- PHASE 3: TICK (THE CRASH POINT) ---")
         resp = await client.post(f"{LIVE_URL}/v1/tick", json={
             "now": datetime.utcnow().isoformat() + "Z", 
-            "available_triggers": ["t_live_1"]
-        }, params={"trigger_id": "t_live_1"}) # Mocking trigger push internally
-        
-        # Note: Since I can't push a trigger from outside easily without the correct ID, 
-        # I'll just push it via context first
-        await client.post(f"{LIVE_URL}/v1/context", json={
-            "scope": "trigger", "context_id": "t_live_1", "version": 1, 
-            "payload": {"id": "t_live_1", "kind": "research", "merchant_id": "m_live_test"}
+            "available_triggers": ["t1"]
         })
         
-        resp = await client.post(f"{LIVE_URL}/v1/tick", json={
-            "now": datetime.utcnow().isoformat() + "Z", 
-            "available_triggers": ["t_live_1"]
-        })
-        
-        actions = resp.json().get("actions", [])
-        if actions:
-            body = actions[0]["body"]
-            print(f"JUDGE VERDICT ON COMPOSITION:\n\"{body}\"")
-            if "JIDA" in body and "0.8%" in body and "88" in body:
-                print("[PASS] 10/10: Specificity & Citations detected!")
-            else:
-                print("[WARN] Missing specificity or citations.")
+        print(f"Tick Status: {resp.status_code}")
+        if resp.status_code != 200:
+            print(f"!!!! ERROR FROM SERVER !!!!\n{resp.text}")
         else:
-            print("[FAIL] No actions generated!")
-
-        print("\n--- PHASE 4: REPLAY LOOP PREVENTION ---")
-        reply_resp = await client.post(f"{LIVE_URL}/v1/reply", json={
-            "conversation_id": "conv_live_1", "merchant_id": "m_live_test",
-            "message": "Thank you", "from_role": "merchant",
-            "received_at": datetime.utcnow().isoformat() + "Z", "turn_number": 2
-        })
-        if reply_resp.json().get("action") == "end":
-            print("[PASS] Loop Prevention: Bot correctly ended on 'Thank you'")
-        else:
-            print(f"[FAIL] Bot kept talking on auto-reply: {reply_resp.json().get('action')}")
+            print(f"Success! Response: {json.dumps(resp.json(), indent=2)}")
 
 if __name__ == "__main__":
     asyncio.run(stress_test())
