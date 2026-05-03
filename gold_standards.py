@@ -3,14 +3,21 @@ import re
 
 def get_gold_standard_examples(category_slug: str) -> str:
     """
-    Extracts the 'Gold Standard' example for a specific category from the case-studies.md file.
+    Extracts the 'Gold Standard' example for a specific category.
     """
-    path = "examples/case-studies.md"
-    if not os.path.exists(path):
-        return ""
+    paths = ["examples/case-studies.md", "dataset/case-studies.md", "../examples/case-studies.md"]
+    content = None
+    for path in paths:
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                break
+            except:
+                continue
     
-    with open(path, "r", encoding="utf-8") as f:
-        content = f.read()
+    if not content:
+        return ""
     
     # Simple regex to find the case study for the category
     # Case studies are usually in ## Case Study X — Category / ... format
