@@ -53,9 +53,7 @@ def route_intent(merchant_message: str) -> str:
         )
         
         result = json.loads(response.choices[0].message.content)
-        intent = result.get("intent", "QUESTION").upper()
-        print(f"[ROUTER INTENT] {intent} for message: {merchant_message}")
-        return intent
+        return result.get("intent", "QUESTION").upper()
     except Exception as e:
         print(f"[ROUTER] Failed to route: {e}")
         return "QUESTION"
