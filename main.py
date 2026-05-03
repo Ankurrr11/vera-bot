@@ -18,7 +18,7 @@ from tools import execute_tool
 from router import route_intent
 from memory import update_merchant_profile
 
-app = FastAPI(title="Vera Bot", version=os.getenv("BOT_VERSION", "1.0.0"))
+app = FastAPI(title="Vera Bot", version=os.getenv("BOT_VERSION", "1.0.1-LEGENDARY"))
 
 
 # ── MODELS ──────────────────────────────────────────────────────────────────
@@ -107,15 +107,13 @@ def tick(req: TickRequest):
     actions = []
 
     try:
-            for trigger_id in trigger_ids:
+        for trigger_id in trigger_ids:
             trigger_entry = store.get_trigger(trigger_id)
             if not trigger_entry:
                 continue
             trigger = trigger_entry["payload"]
 
             merchant_id = trigger.get("merchant_id")
-            customer_id = trigger.get("customer_id")
-
             merchant_entry = store.get_merchant(merchant_id)
             if not merchant_entry:
                 continue
@@ -127,6 +125,7 @@ def tick(req: TickRequest):
                 continue
             category = category_entry["payload"]
 
+            customer_id = trigger.get("customer_id")
             customer = None
             if customer_id:
                 customer_entry = store.get_customer(customer_id)
@@ -194,7 +193,7 @@ def tick(req: TickRequest):
             "actions": [{
                 "merchant_id": "system",
                 "trigger_id": "error",
-                "body": f"Vera is analyzing market shifts. We'll have a specific insight for you shortly. (Debug: {str(e)[:100]})",
+                "body": f"Vera is analyzing market data. Insights arriving soon. (Debug: {str(e)[:100]})",
                 "cta": "none",
                 "suppression_key": "system_error_cooldown"
             }]
